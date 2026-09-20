@@ -34,19 +34,13 @@ type TimelineEntry =
   | { type: 'payment'; date: string; payment: Payment; prevBalance: number; newBalance: number }
   | { type: 'declined'; date: string }
 
-// Resgata o valor efetivamente pago no modelo antigo de venda (parcial ou total)
 function getSalePaidAmount(sale: Sale): number {
-  if (sale.paid) {
-    return sale.amount
-  }
+  if (sale.paid) return sale.amount
   return typeof sale.amountPaid === 'number' ? sale.amountPaid : 0
 }
 
-// Resgata o saldo pendente de uma venda individual
 function getSalePendingAmount(sale: Sale): number {
-  if (sale.paid) {
-    return 0
-  }
+  if (sale.paid) return 0
   const paid = typeof sale.amountPaid === 'number' ? sale.amountPaid : 0
   return Math.max(0, sale.amount - paid)
 }
@@ -85,28 +79,21 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     )
   }
 
-  // CALCULO AUTOMÁTICO PARA TODOS OS CLIENTES (Fórmula do App Original):
-  
-  // 1. Faturado Total: Soma bruta de todas as entregas realizadas ao cliente
-  const totalFaturado = sales.reduce((sum, sale) => sum + sale.amount, 0)
-
-  // 2. Pendência Bruta das Vendas (considerando se houve pagamento parcial antigo no amoutPaid)
-  const totalPendingFromSales = sales.reduce((sum, sale) => sum + getSalePendingAmount(sale), 0)
-
-  // 3. Novos Abatimentos registrados pela tabela de pagamentos
+  // 1. Faturado Total (Apenas o que já foi recebido)
+  const totalSalesPaid = sales.reduce((sum, sale) => sum + getSalePaidAmount(sale), 0)
   const totalNewPayments = payments.reduce((sum, p) => sum + p.amount, 0)
+  const totalFaturado = totalSalesPaid + totalNewPayments
 
-  // 4. Saldo Devedor Real Atual
+  // 2. Saldo Devedor
+  const totalPendingFromSales = sales.reduce((sum, sale) => sum + getSalePendingAmount(sale), 0)
   const totalDevendo = Math.max(0, totalPendingFromSales - totalNewPayments)
 
   const pendingSales = sales.filter((sale) => !sale.paid && getSalePendingAmount(sale) > 0)
 
-  // Visitas sem compra
   const declinedDates = visits
     .filter((visit) => !sales.some((sale) => sale.date === visit.date))
     .map((visit) => visit.date)
 
-  // Unificar eventos em ordem cronológica (Antigo -> Recente)
   type RawEvent =
     | { type: 'sale'; date: string; sortKey: string; sale: Sale }
     | { type: 'payment'; date: string; sortKey: string; payment: Payment }
@@ -132,7 +119,6 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     })),
   ].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
 
-  // Calcular o saldo devedor de forma progressiva na linha do tempo
   let runningBalance = 0
   const calculatedTimeline: TimelineEntry[] = rawEvents.map((event) => {
     const prevBalance = runningBalance
@@ -165,7 +151,6 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     return { type: 'declined', date: event.date }
   })
 
-  // Inverter para exibir o mais recente no topo
   const timeline = [...calculatedTimeline].reverse()
 
   function handleDelete() {
@@ -189,45 +174,10 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
             <h1 className={styles.name}>{client.name}</h1>
             <button type="button" className={styles.editButton} onClick={() => onEdit(client.id)} aria-label="Editar cliente">
               <svg viewBox="0 0 24 24" width="20" height="20" fill="none">
-                <path
-                  d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
+                <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>
-
-          {client.phone && (
-            <p className={styles.infoLine}>
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" className={styles.infoIcon}>
-                <path
-                  d="M5 4h3l2 5-2 1a11 11 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2C10.5 21 3 13.5 3 6a2 2 0 0 1 2-2z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              {client.phone}
-            </p>
-          )}
-
-          {client.address && (
-            <button type="button" className={styles.infoLineButton} onClick={() => setShowMap(true)}>
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" className={styles.infoIcon}>
-                <path
-                  d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                />
-                <circle cx="12" cy="9.5" r="2.3" stroke="currentColor" strokeWidth="2" />
-              </svg>
-              {client.address}
-            </button>
-          )}
 
           <div className={styles.dayChips}>
             {client.deliveryDays.map((day) => (
@@ -318,13 +268,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
                     aria-label="Editar venda"
                   >
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
-                      <path
-                        d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
+                      <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </button>
                 </div>
@@ -335,7 +279,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
               </p>
               {(entry.sale.paid || salePaid > 0) && entry.sale.paymentMethod && (
                 <p className={styles.salePayment}>
-                  {PAYMENT_LABELS[entry.sale.paymentMethod]} {salePaid < entry.sale.amount ? `(Abatido antigo: ${formatBRL(salePaid)})` : ''}
+                  {PAYMENT_LABELS[entry.sale.paymentMethod]} {salePaid < entry.sale.amount && salePaid > 0 ? `(Abatido antigo: ${formatBRL(salePaid)})` : ''}
                 </p>
               )}
               {!entry.sale.paid && salePending > 0 && (
@@ -346,59 +290,18 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
             </Card>
           )
         })}
-
-        <button type="button" className={styles.deleteButton} onClick={handleDelete}>
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
-            <path
-              d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Excluir cliente
-        </button>
       </div>
 
       {showSaleModal && (
-        <SaleQuickModal
-          client={client}
-          markVisitedOnSave={false}
-          onClose={() => setShowSaleModal(false)}
-          onSaved={() => {
-            reloadData()
-            setShowSaleModal(false)
-          }}
-        />
+        <SaleQuickModal client={client} markVisitedOnSave={false} onClose={() => setShowSaleModal(false)} onSaved={() => { reloadData(); setShowSaleModal(false) }} />
       )}
 
       {editingSale && (
-        <SaleQuickModal
-          client={client}
-          sale={editingSale}
-          onClose={() => setEditingSale(null)}
-          onSaved={() => {
-            reloadData()
-            setEditingSale(null)
-          }}
-        />
-      )}
-
-      {showMap && client.address && (
-        <MapChooserModal address={client.address} onClose={() => setShowMap(false)} />
+        <SaleQuickModal client={client} sale={editingSale} onClose={() => setEditingSale(null)} onSaved={() => { reloadData(); setEditingSale(null) }} />
       )}
 
       {showSettleDebt && (
-        <SettleDebtModal
-          client={client}
-          pendingSales={pendingSales}
-          onClose={() => setShowSettleDebt(false)}
-          onSettled={() => {
-            reloadData()
-            setShowSettleDebt(false)
-          }}
-        />
+        <SettleDebtModal client={client} pendingSales={pendingSales} onClose={() => setShowSettleDebt(false)} onSettled={() => { reloadData(); setShowSettleDebt(false) }} />
       )}
     </div>
   )
