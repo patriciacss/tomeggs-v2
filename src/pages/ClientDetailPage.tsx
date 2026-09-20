@@ -34,7 +34,7 @@ type TimelineEntry =
   | { type: 'payment'; date: string; payment: Payment; prevBalance: number; newBalance: number }
   | { type: 'declined'; date: string }
 
-// Resgata o valor efetivamente pago no modelo antigo de venda
+// Resgata o valor efetivamente pago no modelo antigo de venda (parcial ou total)
 function getSalePaidAmount(sale: Sale): number {
   if (sale.paid) {
     return sale.amount
@@ -42,7 +42,7 @@ function getSalePaidAmount(sale: Sale): number {
   return typeof sale.amountPaid === 'number' ? sale.amountPaid : 0
 }
 
-// Resgata o saldo pendente de uma venda individual do modelo antigo
+// Resgata o saldo pendente de uma venda individual
 function getSalePendingAmount(sale: Sale): number {
   if (sale.paid) {
     return 0
@@ -85,17 +85,18 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     )
   }
 
-  // 1. O que foi pago via vendas (modelo antigo + pagamentos na hora da venda)
-  const totalSalesPaid = sales.reduce((sum, sale) => sum + getSalePaidAmount(sale), 0)
+  // CALCULO AUTOMÁTICO PARA TODOS OS CLIENTES (Fórmula do App Original):
+  
+  // 1. Faturado Total: Soma bruta de todas as entregas realizadas ao cliente
+  const totalFaturado = sales.reduce((sum, sale) => sum + sale.amount, 0)
 
-  // 2. O que foi abatido pelo novo botão "Abater dívida"
+  // 2. Pendência Bruta das Vendas (considerando se houve pagamento parcial antigo no amoutPaid)
+  const totalPendingFromSales = sales.reduce((sum, sale) => sum + getSalePendingAmount(sale), 0)
+
+  // 3. Novos Abatimentos registrados pela tabela de pagamentos
   const totalNewPayments = payments.reduce((sum, p) => sum + p.amount, 0)
 
-  // 3. Faturado Total = Pagamentos antigos resgatados + Novos abatimentos
-  const totalFaturado = totalSalesPaid + totalNewPayments
-
-  // 4. Saldo Devedor = Pendência restante das vendas - Novos abatimentos
-  const totalPendingFromSales = sales.reduce((sum, sale) => sum + getSalePendingAmount(sale), 0)
+  // 4. Saldo Devedor Real Atual
   const totalDevendo = Math.max(0, totalPendingFromSales - totalNewPayments)
 
   const pendingSales = sales.filter((sale) => !sale.paid && getSalePendingAmount(sale) > 0)
@@ -131,7 +132,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     })),
   ].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
 
-  // Calcular o saldo devedor de forma progressiva
+  // Calcular o saldo devedor de forma progressiva na linha do tempo
   let runningBalance = 0
   const calculatedTimeline: TimelineEntry[] = rawEvents.map((event) => {
     const prevBalance = runningBalance
