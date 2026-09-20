@@ -179,6 +179,35 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
             </button>
           </div>
 
+          {client.phone && (
+            <p className={styles.infoLine}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" className={styles.infoIcon}>
+                <path
+                  d="M5 4h3l2 5-2 1a11 11 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2C10.5 21 3 13.5 3 6a2 2 0 0 1 2-2z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {client.phone}
+            </p>
+          )}
+
+          {client.address && (
+            <button type="button" className={styles.infoLineButton} onClick={() => setShowMap(true)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" className={styles.infoIcon}>
+                <path
+                  d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
+                />
+                <circle cx="12" cy="9.5" r="2.3" stroke="currentColor" strokeWidth="2" />
+              </svg>
+              {client.address}
+            </button>
+          )}
+
           <div className={styles.dayChips}>
             {client.deliveryDays.map((day) => (
               <span key={day} className={styles.dayChip}>
@@ -290,6 +319,19 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
             </Card>
           )
         })}
+
+        <button type="button" className={styles.deleteButton} onClick={handleDelete}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+            <path
+              d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Excluir cliente
+        </button>
       </div>
 
       {showSaleModal && (
@@ -298,6 +340,10 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
 
       {editingSale && (
         <SaleQuickModal client={client} sale={editingSale} onClose={() => setEditingSale(null)} onSaved={() => { reloadData(); setEditingSale(null) }} />
+      )}
+
+      {showMap && client.address && (
+        <MapChooserModal address={client.address} onClose={() => setShowMap(false)} />
       )}
 
       {showSettleDebt && (
