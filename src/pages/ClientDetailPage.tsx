@@ -36,7 +36,7 @@ type TimelineEntry =
 
 export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageProps) {
   const { client } = useClient(clientId)
-  const { sales, markSalePaid, refresh: refreshSales } = useSales(clientId)
+  const { sales, refresh: refreshSales } = useSales(clientId)
   const [visits, setVisits] = useState<Visit[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
   const [showSaleModal, setShowSaleModal] = useState(false)
@@ -68,10 +68,17 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     )
   }
 
-  // Totais do Card de estatísticas
-  const totalFaturado = sales.reduce((sum, sale) => sum + sale.amount, 0)
-  const totalSalesUnpaid = sales.filter((s) => !s.paid).reduce((sum, sale) => sum + sale.amount, 0)
+  // 1. Vendas pagas no ato
+  const salesPaidDirectly = sales.filter((s) => s.paid).reduce((sum, sale) => sum + sale.amount, 0)
+  
+  // 2. Abatimentos/pagamentos recebidos depois
   const totalPaymentsMade = payments.reduce((sum, p) => sum + p.amount, 0)
+
+  // 3. Faturado Real = Pagos na hora + Abatimentos recebidos
+  const totalFaturado = salesPaidDirectly + totalPaymentsMade
+
+  // 4. Saldo Devedor = Total Fiado - Abatimentos recebidos
+  const totalSalesUnpaid = sales.filter((s) => !s.paid).reduce((sum, sale) => sum + sale.amount, 0)
   const totalDevendo = Math.max(0, totalSalesUnpaid - totalPaymentsMade)
 
   const pendingSales = sales.filter((sale) => !sale.paid)
@@ -81,7 +88,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     .filter((visit) => !sales.some((sale) => sale.date === visit.date))
     .map((visit) => visit.date)
 
-  // 1. Unificar todos os lançamentos por data/criação em ordem cronológica (Antigo -> Recente)
+  // Unificar lançamentos por data/criação em ordem cronológica (Antigo -> Recente)
   type RawEvent =
     | { type: 'sale'; date: string; sortKey: string; sale: Sale }
     | { type: 'payment'; date: string; sortKey: string; payment: Payment }
@@ -107,7 +114,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     })),
   ].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
 
-  // 2. Calcular o saldo devedor acumulado passo a passo
+  // Calcular o saldo devedor acumulado passo a passo
   let runningBalance = 0
   const calculatedTimeline: TimelineEntry[] = rawEvents.map((event) => {
     const prevBalance = runningBalance
@@ -139,7 +146,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     return { type: 'declined', date: event.date }
   })
 
-  // 3. Inverter para exibir no topo o lançamento mais recente
+  // Inverter para exibir o lançamento mais recente no topo
   const timeline = [...calculatedTimeline].reverse()
 
   function handleDelete() {
@@ -272,7 +279,6 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
             )
           }
 
-          // Tipo Venda
           return (
             <Card key={entry.sale.id} className={styles.saleCard}>
               <div className={styles.saleTop}>
@@ -281,16 +287,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
                   {entry.sale.paid ? (
                     <span className={styles.pillPaid}>Pago</span>
                   ) : (
-                    <button
-                      type="button"
-                      className={styles.pillPending}
-                      onClick={() => {
-                        markSalePaid(entry.sale.id, 'dinheiro')
-                        reloadData()
-                      }}
-                    >
-                      Fiado · Marcar pago
-                    </button>
+                    <span className={styles.pillPending}>Fiado</span>
                   )}
                   <button
                     type="button"
