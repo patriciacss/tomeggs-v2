@@ -36,6 +36,7 @@ type TimelineEntry =
 
 export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageProps) {
   const { client } = useClient(clientId)
+  // Removi apenas a função markSalePaid daqui, pois não usaremos mais o botão
   const { sales, refresh: refreshSales } = useSales(clientId)
   const [visits, setVisits] = useState<Visit[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
@@ -68,7 +69,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     )
   }
 
-  // Totais do Card de estatísticas
+  // Totais originais (mantidos exatamente como você aprovou)
   const totalFaturado = sales.reduce((sum, sale) => sum + sale.amount, 0)
   const totalSalesUnpaid = sales.filter((s) => !s.paid).reduce((sum, sale) => sum + sale.amount, 0)
   const totalPaymentsMade = payments.reduce((sum, p) => sum + p.amount, 0)
@@ -278,11 +279,14 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
               <div className={styles.saleTop}>
                 <span className={styles.saleDate}>{formatDateBR(entry.sale.date)}</span>
                 <div className={styles.saleTopActions}>
+                  
+                  {/* AQUI ESTÁ A MUDANÇA: O botão antigo virou apenas a Tag Visual de Fiado */}
                   {entry.sale.paid ? (
                     <span className={styles.pillPaid}>Pago</span>
                   ) : (
                     <span className={styles.pillPending}>Fiado</span>
                   )}
+                  
                   <button
                     type="button"
                     className={styles.saleEditButton}
