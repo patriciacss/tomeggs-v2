@@ -450,6 +450,34 @@ function mergeRouteOrder(remoteRows: DbRouteOrder[]): void {
   }
 }
 
+// Função criada para contornar o limite de 1000 registros do Supabase
+// Faz a paginação automática para baixar todos os registros (lotes de 1.000)
+async function fetchAllRecords(table: string, filter: string): Promise<any[]> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return []
+
+  const allData: any[] = []
+  let from = 0
+  const step = 999
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .gte('updated_at', filter)
+      .order('updated_at', { ascending: true })
+      .range(from, from + step)
+
+    if (error) throw error
+    if (!data || data.length === 0) break
+
+    allData.push(...data)
+    if (data.length <= step) break
+    from += step + 1
+  }
+  return allData
+}
+
 async function pullRemote(): Promise<void> {
   const supabase = getSupabaseClient()
   if (!supabase) return
@@ -457,25 +485,20 @@ async function pullRemote(): Promise<void> {
   const lastSyncAt = storageService.get<string | null>(STORAGE_KEYS.lastSyncAt, null)
   const filter = lastSyncAt ? lastSyncAt : '1970-01-01T00:00:00.000Z'
 
-  const [clientsResult, salesResult, visitsResult, routeOrderResult, paymentsResult] = await Promise.all([
-    supabase.from('clients').select('*').gte('updated_at', filter),
-    supabase.from('sales').select('*').gte('updated_at', filter),
-    supabase.from('visits').select('*').gte('updated_at', filter),
-    supabase.from('route_order').select('*').gte('updated_at', filter),
-    supabase.from('payments').select('*').gte('updated_at', filter),
+  // Baixando os dados com a nova função que fura o bloqueio de 1000 itens!
+  const [clientsData, salesData, visitsData, routeOrderData, paymentsData] = await Promise.all([
+    fetchAllRecords('clients', filter),
+    fetchAllRecords('sales', filter),
+    fetchAllRecords('visits', filter),
+    fetchAllRecords('route_order', filter),
+    fetchAllRecords('payments', filter),
   ])
 
-  if (clientsResult.error) throw clientsResult.error
-  if (salesResult.error) throw salesResult.error
-  if (visitsResult.error) throw visitsResult.error
-  if (routeOrderResult.error) throw routeOrderResult.error
-  if (paymentsResult.error) throw paymentsResult.error
-
-  mergeClients((clientsResult.data ?? []) as DbClient[])
-  mergeSales((salesResult.data ?? []) as DbSale[])
-  mergeVisits((visitsResult.data ?? []) as DbVisit[])
-  mergeRouteOrder((routeOrderResult.data ?? []) as DbRouteOrder[])
-  mergePayments((paymentsResult.data ?? []) as DbPayment[])
+  mergeClients((clientsData ?? []) as DbClient[])
+  mergeSales((salesData ?? []) as DbSale[])
+  mergeVisits((visitsData ?? []) as DbVisit[])
+  mergeRouteOrder((routeOrderData ?? []) as DbRouteOrder[])
+  mergePayments((paymentsData ?? []) as DbPayment[])
 
   const lastSyncTimestamp = new Date(Date.now() - 1000).toISOString()
   storageService.set(STORAGE_KEYS.lastSyncAt, lastSyncTimestamp)
