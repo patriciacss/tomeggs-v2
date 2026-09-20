@@ -34,9 +34,25 @@ type TimelineEntry =
   | { type: 'payment'; date: string; payment: Payment; prevBalance: number; newBalance: number }
   | { type: 'declined'; date: string }
 
+// Resgata o valor efetivamente pago no modelo antigo de venda
+function getSalePaidAmount(sale: Sale): number {
+  if (sale.paid) {
+    return sale.amount
+  }
+  return typeof sale.amountPaid === 'number' ? sale.amountPaid : 0
+}
+
+// Resgata o saldo pendente de uma venda individual do modelo antigo
+function getSalePendingAmount(sale: Sale): number {
+  if (sale.paid) {
+    return 0
+  }
+  const paid = typeof sale.amountPaid === 'number' ? sale.amountPaid : 0
+  return Math.max(0, sale.amount - paid)
+}
+
 export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageProps) {
   const { client } = useClient(clientId)
-  // Removi apenas a função markSalePaid daqui, pois não usaremos mais o botão
   const { sales, refresh: refreshSales } = useSales(clientId)
   const [visits, setVisits] = useState<Visit[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
@@ -69,20 +85,27 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     )
   }
 
-  // Totais originais (mantidos exatamente como você aprovou)
-  const totalFaturado = sales.reduce((sum, sale) => sum + sale.amount, 0)
-  const totalSalesUnpaid = sales.filter((s) => !s.paid).reduce((sum, sale) => sum + sale.amount, 0)
-  const totalPaymentsMade = payments.reduce((sum, p) => sum + p.amount, 0)
-  const totalDevendo = Math.max(0, totalSalesUnpaid - totalPaymentsMade)
+  // 1. O que foi pago via vendas (modelo antigo + pagamentos na hora da venda)
+  const totalSalesPaid = sales.reduce((sum, sale) => sum + getSalePaidAmount(sale), 0)
 
-  const pendingSales = sales.filter((sale) => !sale.paid)
+  // 2. O que foi abatido pelo novo botão "Abater dívida"
+  const totalNewPayments = payments.reduce((sum, p) => sum + p.amount, 0)
+
+  // 3. Faturado Total = Pagamentos antigos resgatados + Novos abatimentos
+  const totalFaturado = totalSalesPaid + totalNewPayments
+
+  // 4. Saldo Devedor = Pendência restante das vendas - Novos abatimentos
+  const totalPendingFromSales = sales.reduce((sum, sale) => sum + getSalePendingAmount(sale), 0)
+  const totalDevendo = Math.max(0, totalPendingFromSales - totalNewPayments)
+
+  const pendingSales = sales.filter((sale) => !sale.paid && getSalePendingAmount(sale) > 0)
 
   // Visitas sem compra
   const declinedDates = visits
     .filter((visit) => !sales.some((sale) => sale.date === visit.date))
     .map((visit) => visit.date)
 
-  // 1. Unificar todos os lançamentos por data/criação em ordem cronológica (Antigo -> Recente)
+  // Unificar eventos em ordem cronológica (Antigo -> Recente)
   type RawEvent =
     | { type: 'sale'; date: string; sortKey: string; sale: Sale }
     | { type: 'payment'; date: string; sortKey: string; payment: Payment }
@@ -108,14 +131,15 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     })),
   ].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
 
-  // 2. Calcular o saldo devedor acumulado passo a passo
+  // Calcular o saldo devedor de forma progressiva
   let runningBalance = 0
   const calculatedTimeline: TimelineEntry[] = rawEvents.map((event) => {
     const prevBalance = runningBalance
 
     if (event.type === 'sale') {
-      if (!event.sale.paid) {
-        runningBalance += event.sale.amount
+      const pendingAmount = getSalePendingAmount(event.sale)
+      if (!event.sale.paid && pendingAmount > 0) {
+        runningBalance += pendingAmount
       }
       return {
         type: 'sale',
@@ -140,7 +164,7 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     return { type: 'declined', date: event.date }
   })
 
-  // 3. Inverter para exibir no topo o lançamento mais recente
+  // Inverter para exibir o mais recente no topo
   const timeline = [...calculatedTimeline].reverse()
 
   function handleDelete() {
@@ -273,20 +297,19 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
             )
           }
 
-          // Tipo Venda
+          const salePending = getSalePendingAmount(entry.sale)
+          const salePaid = getSalePaidAmount(entry.sale)
+
           return (
             <Card key={entry.sale.id} className={styles.saleCard}>
               <div className={styles.saleTop}>
                 <span className={styles.saleDate}>{formatDateBR(entry.sale.date)}</span>
                 <div className={styles.saleTopActions}>
-                  
-                  {/* AQUI ESTÁ A MUDANÇA: O botão antigo virou apenas a Tag Visual de Fiado */}
-                  {entry.sale.paid ? (
+                  {entry.sale.paid || salePending === 0 ? (
                     <span className={styles.pillPaid}>Pago</span>
                   ) : (
                     <span className={styles.pillPending}>Fiado</span>
                   )}
-                  
                   <button
                     type="button"
                     className={styles.saleEditButton}
@@ -309,12 +332,14 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
                 {entry.sale.dozens} {getSaleUnitLabel(entry.sale.unit, entry.sale.dozens)} ·{' '}
                 {formatBRL(entry.sale.amount)}
               </p>
-              {entry.sale.paid && entry.sale.paymentMethod && (
-                <p className={styles.salePayment}>{PAYMENT_LABELS[entry.sale.paymentMethod]}</p>
-              )}
-              {!entry.sale.paid && (
+              {(entry.sale.paid || salePaid > 0) && entry.sale.paymentMethod && (
                 <p className={styles.salePayment}>
-                  {formatBRL(entry.prevBalance)} + {formatBRL(entry.sale.amount)} = <strong>Devendo {formatBRL(entry.newBalance)}</strong>
+                  {PAYMENT_LABELS[entry.sale.paymentMethod]} {salePaid < entry.sale.amount ? `(Abatido antigo: ${formatBRL(salePaid)})` : ''}
+                </p>
+              )}
+              {!entry.sale.paid && salePending > 0 && (
+                <p className={styles.salePayment}>
+                  {formatBRL(entry.prevBalance)} + {formatBRL(salePending)} = <strong>Devendo {formatBRL(entry.newBalance)}</strong>
                 </p>
               )}
             </Card>
