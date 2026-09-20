@@ -12,7 +12,7 @@ import { useSales } from '../hooks/useSales'
 import { clientService } from '../services/clientService'
 import { visitService } from '../services/visitService'
 import { paymentService } from '../services/paymentService'
-import { WEEKDAYS, getSaleUnitLabel } from '../types'
+import { WEEKDAYS, getSalePaidAmount, getSalePendingAmount, getSaleUnitLabel } from '../types'
 import type { Payment, Sale, Visit } from '../types'
 import { formatBRL } from '../utils/currency'
 import { formatDateBR } from '../utils/date'
@@ -68,20 +68,20 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     )
   }
 
-  // 1. Vendas pagas no ato
-  const salesPaidDirectly = sales.filter((s) => s.paid).reduce((sum, sale) => sum + sale.amount, 0)
+  // 1. O que foi pago via vendas (modelo antigo + pagamentos na hora)
+  const totalSalesPaid = sales.reduce((sum, sale) => sum + getSalePaidAmount(sale), 0)
   
-  // 2. Abatimentos/pagamentos recebidos depois
-  const totalPaymentsMade = payments.reduce((sum, p) => sum + p.amount, 0)
+  // 2. Abatimentos registrados na tabela nova de pagamentos
+  const totalNewPayments = payments.reduce((sum, p) => sum + p.amount, 0)
 
-  // 3. Faturado Real = Pagos na hora + Abatimentos recebidos
-  const totalFaturado = salesPaidDirectly + totalPaymentsMade
+  // 3. Faturado Total = O que foi pago nas vendas + novos abatimentos
+  const totalFaturado = totalSalesPaid + totalNewPayments
 
-  // 4. Saldo Devedor = Total Fiado - Abatimentos recebidos
-  const totalSalesUnpaid = sales.filter((s) => !s.paid).reduce((sum, sale) => sum + sale.amount, 0)
-  const totalDevendo = Math.max(0, totalSalesUnpaid - totalPaymentsMade)
+  // 4. Saldo Devedor = O que falta pagar nas vendas fiadas - novos abatimentos
+  const totalPendingFromSales = sales.reduce((sum, sale) => sum + getSalePendingAmount(sale), 0)
+  const totalDevendo = Math.max(0, totalPendingFromSales - totalNewPayments)
 
-  const pendingSales = sales.filter((sale) => !sale.paid)
+  const pendingSales = sales.filter((sale) => !sale.paid && getSalePendingAmount(sale) > 0)
 
   // Visitas sem compra
   const declinedDates = visits
@@ -114,14 +114,15 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
     })),
   ].sort((a, b) => (a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0))
 
-  // Calcular o saldo devedor acumulado passo a passo
+  // Calcular o saldo devedor acumulado considerando pendências das vendas + pagamentos novos
   let runningBalance = 0
   const calculatedTimeline: TimelineEntry[] = rawEvents.map((event) => {
     const prevBalance = runningBalance
 
     if (event.type === 'sale') {
-      if (!event.sale.paid) {
-        runningBalance += event.sale.amount
+      const pendingAmount = getSalePendingAmount(event.sale)
+      if (!event.sale.paid && pendingAmount > 0) {
+        runningBalance += pendingAmount
       }
       return {
         type: 'sale',
@@ -279,12 +280,15 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
             )
           }
 
+          const salePending = getSalePendingAmount(entry.sale)
+          const salePaid = getSalePaidAmount(entry.sale)
+
           return (
             <Card key={entry.sale.id} className={styles.saleCard}>
               <div className={styles.saleTop}>
                 <span className={styles.saleDate}>{formatDateBR(entry.sale.date)}</span>
                 <div className={styles.saleTopActions}>
-                  {entry.sale.paid ? (
+                  {entry.sale.paid || salePending === 0 ? (
                     <span className={styles.pillPaid}>Pago</span>
                   ) : (
                     <span className={styles.pillPending}>Fiado</span>
@@ -311,12 +315,14 @@ export function ClientDetailPage({ clientId, onBack, onEdit }: ClientDetailPageP
                 {entry.sale.dozens} {getSaleUnitLabel(entry.sale.unit, entry.sale.dozens)} ·{' '}
                 {formatBRL(entry.sale.amount)}
               </p>
-              {entry.sale.paid && entry.sale.paymentMethod && (
-                <p className={styles.salePayment}>{PAYMENT_LABELS[entry.sale.paymentMethod]}</p>
-              )}
-              {!entry.sale.paid && (
+              {(entry.sale.paid || salePaid > 0) && entry.sale.paymentMethod && (
                 <p className={styles.salePayment}>
-                  {formatBRL(entry.prevBalance)} + {formatBRL(entry.sale.amount)} = <strong>Devendo {formatBRL(entry.newBalance)}</strong>
+                  {PAYMENT_LABELS[entry.sale.paymentMethod]} {salePaid < entry.sale.amount ? `(Pago antigo: ${formatBRL(salePaid)})` : ''}
+                </p>
+              )}
+              {!entry.sale.paid && salePending > 0 && (
+                <p className={styles.salePayment}>
+                  {formatBRL(entry.prevBalance)} + {formatBRL(salePending)} = <strong>Devendo {formatBRL(entry.newBalance)}</strong>
                 </p>
               )}
             </Card>
